@@ -203,8 +203,8 @@ class Tensor:
     # --- the actual point of all this --------------------------------------
 
     def backward(self, grad=None):
-        # iterative topo sort, a 6-layer transformer graph blows past
-        # python's recursion limit with the naive recursive version
+        # iterative topo sort. deep graphs can blow past python's recursion
+        # limit with the naive recursive version
         order, seen = [], set()
         stack = [(self, False)]
         while stack:
@@ -220,4 +220,6 @@ class Tensor:
 
         self.grad = np.ones_like(self.data) if grad is None else np.asarray(grad, dtype=np.float64)
         for node in reversed(order):
-            node._backward()
+            # constants sitting in the graph never receive a grad, nothing to push
+            if node.grad is not None:
+                node._backward()
