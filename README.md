@@ -59,6 +59,29 @@ loss.backward()
 print(w.grad)
 ```
 
+## how it works
+
+- **recording the graph.** every op on a `Tensor` returns a new tensor that keeps
+  references to its inputs (`_parents`) plus a small `_backward` closure. that closure
+  knows the local derivative of that one op, e.g. for `a * b` it pushes `grad * b` into `a`
+  and `grad * a` into `b`. nothing gets differentiated symbolically. the graph is just
+  whatever ops actually ran.
+- **backward.** `loss.backward()` does a topological sort of the graph (iteratively, so
+  deep graphs don't hit the recursion limit), seeds the output grad with ones, and calls
+  each node's `_backward` in reverse order. grads are summed, so a tensor
+  used in several places gets the sum of all its paths.
+- **broadcasting.** if numpy stretched an input in the forward pass (say a bias of shape
+  `(C,)` added to `(B, T, C)`), the incoming grad has the big shape. `_unbroadcast` sums
+  over the stretched axes so every grad ends up the same shape as its tensor.
+- **layers on top.** softmax, log-softmax, cross entropy, gelu, LayerNorm etc. are all
+  built from the basic ops, so they get their gradients for free. only the primitives in
+  `tensor.py` have hand-written backward rules.
+- **the GPT.** token + learned position embeddings go through pre-norm blocks
+  (`x + attn(ln(x))`, then `x + mlp(ln(x))`). attention splits q/k/v into heads, scales
+  `q @ k^T` by `1/sqrt(head_dim)`, masks out future positions with `masked_fill` before the
+  softmax, and mixes `v`. a final LayerNorm and linear layer give next-char logits, trained with cross
+  entropy and Adam. generation feeds the last `block_size` chars back in one token at a time.
+
 ## notes
 
 - Everything is float64. Slower, but gradchecks with eps=1e-6 need the precision, and the models here are tiny anyway.
